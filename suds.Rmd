@@ -1,0 +1,117 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+runtime: shiny
+---
+
+```{r}
+install.packages("stringi")
+library(tidyverse)
+library(shiny)
+library(rgdal)
+census = read.csv("Allegheny.csv")
+obesity = read.csv("obesity.csv")
+housing = read.csv("housing.csv")
+sf = readOGR("cb_2017_42_tract_500k.shp")
+```
+
+
+```{r}
+allegheny = rep(NA,402)
+j = 0
+for(i in 1:3217){
+  if(sf$GEOID[i] %in% census$GEO.id2){
+    j = j+1
+    allegheny[j] = i
+  }
+}
+allegheny
+```
+
+```{r}
+ui <- basicPage(
+  plotOutput("plot1", click = "plot_click"),
+  verbatimTextOutput("info"),
+  
+  selectInput("variable", "Variable:",
+              c("Median Income",
+                "Smoking and Obesity Prevalence",
+                "Housing Choice Vouchers"))
+)
+
+server <- function(input, output) {
+  clicked = NA
+  output$plot1 <- renderPlot({
+    tracts = ggplot()
+    for(i in allegheny){
+      ct = data.frame(sf@polygons[[i]]@Polygons[[1]]@coords)
+      C = NA
+      index = which(as.vector(census$GEO.id2)==as.vector(sf$GEOID[i]))[[1]]
+      if(input$variable=="Median Income"){
+        amount = as.numeric(as.vector(census$HC01_EST_VC13))[index]
+        if(!is.na(amount)){
+          if(amount<37000){
+            C = "light green"
+          }
+          else if(amount<67000){
+            C = "green"
+          }
+          else{
+            C = "dark green"
+          }
+        }
+      }
+      else if(input$variable=="Smoking and Obesity Prevalence"){
+        amount = as.numeric(as.vector(obesity$X2006.2010.estimate.of.obesity))[index]
+        if(!is.na(amount)){
+          if(amount<0.24){
+            C = "light blue"
+          }
+          else if(amount<0.31){
+            C = "blue"
+          }
+          else{
+            C = "dark blue"
+          }
+        }
+      }
+      
+      if(!is.na(clicked) & i==clicked){
+        C = "blue"
+      }
+      tract = geom_polygon(data = ct,aes(x = X1, y = X2), colour = "black",fill=C)
+      tracts = tracts + tract
+    }
+    tracts
+  },height=400,width=400)
+
+  output$info <- renderText({
+    
+    X = input$plot_click$x
+    Y = input$plot_click$y
+    for(i in allegheny){
+      ct = data.frame(sf@polygons[[i]]@Polygons[[1]]@coords)
+      c1 = min(ct$X1)<=X
+      c2 = X<=max(ct$X1)
+      c3 = min(ct$X2)<=Y
+      c4 = Y<=max(ct$X2)
+      if(c1+c2+c3+c4==4){
+        clicked = i
+      }
+    }
+    if(input$variable=="Median Income"){
+      income = which(as.vector(census$GEO.id2)==as.vector(sf$GEOID[clicked]))[[1]]
+      paste0(census$GEO.display.label[income],"\n Median Income: $",census$HC01_EST_VC13[income])
+    }
+    else if(input$variable=="Smoking and Obesity Prevalence"){
+      rate = which(as.vector(census$GEO.id2)==as.vector(sf$GEOID[clicked]))[[1]]
+      paste0(census$GEO.display.label[rate],"\n Obesity Rate: ",obesity$X2006.2010.estimate.of.obesity[rate])
+    }
+  }
+  )
+}
+
+shinyApp(ui, server)
+```
